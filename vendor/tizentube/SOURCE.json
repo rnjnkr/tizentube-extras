@@ -1,0 +1,7 @@
+{
+  "package": "@foxreis/tizentube",
+  "version": "1.15.2",
+  "integrity": "sha512-0nUrGh0TFV4PkE5nX9ZT6uZ3KwSqN4gxCVqlqnOoBUtcj+Wtnv66w4f5K2WEX83VQovVMR7H6weFO+D7dZR70w==",
+  "sha256": "7a092351e0e348507ef9c97da8833d5f6717de628517f5299053b3c2073f1d69",
+  "upstream": "https://github.com/reisxd/TizenTube"
+}
