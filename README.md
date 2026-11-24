@@ -3,6 +3,8 @@
 TT Extras adds features to [TizenTube](https://github.com/reisxd/TizenTube)'s userscript for the
 YouTube TV web app in TizenTube Cobalt. The patched app loads the scripts from this repo through jsDelivr.
 
+To build and install the app, follow [INSTALL.md](INSTALL.md). It uses `patch-apk.py` and the icons in `icons/`.
+
 ## Features
 
 - Guest auto-login takes you straight to Home when signed out. You can turn it off in settings.
@@ -16,11 +18,13 @@ YouTube TV web app in TizenTube Cobalt. The patched app loads the scripts from t
 - Search with an English QWERTY keyboard and number row. In the sidebar, Up and Down wrap around.
 - Double-press Left or Right to seek 10 seconds in a video or 5 seconds in a Short. In the Shorts
   player, press Left once with the video focused to choose a playback speed from 0.5× to 2×.
+- Optionally move the player's speed, captions, settings and picture-in-picture buttons into their own
+  group right after Next.
 - Choose an optional YouTube Premium logo or a background picture in settings.
 
 ## Background pictures
 
-Turn on Background in settings to show a dimmed picture behind browsing and search pages.
+Turn on Background in settings to show a dimmed picture behind every page except the video player.
 Pictures live in `backgrounds/`, with file names listed in `backgrounds/backgrounds.json`.
 The included picture is “TON 618” by Denniszeng (Wikimedia Commons, CC0).
 
