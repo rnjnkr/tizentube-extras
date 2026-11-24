@@ -135,7 +135,88 @@ If it fails with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`, an app with this package 
 installed but signed with a different key. Uninstalling it deletes its data, so it's the person's
 decision. Agents: ask, and never uninstall anything on your own.
 
-## 6. First start (you)
+## 6. Bring over your TizenTube data (optional)
+
+If you already use TizenTube, you can copy its web profile into TT Extras. That covers:
+
+- your YouTube sign-in;
+- if you never signed in, your guest identity (the `VISITOR_INFO1_LIVE` cookie and the others YouTube
+  sets), which YouTube uses to pick your recommendations and keep your watch history;
+- TizenTube's settings and YouTube's own TV settings.
+
+Without the copy, TT Extras starts as a new guest with a fresh Home feed. TizenTube keeps its own data
+either way: from here on, the two apps have separate copies.
+
+This works because TizenTube Cobalt's APK is debuggable, so `adb shell run-as` can read and write each
+app's private files. Run these commands in a Unix shell: Terminal on macOS or Linux, Git Bash or WSL on
+Windows.
+
+```sh
+SRC=io.gh.reisxd.tizentube.cobalt   # TizenTube
+DST=io.github.rnjnkr.ttextras.prd   # TT Extras (your --package)
+```
+
+1. **Close both apps.**
+
+   ```sh
+   adb shell am force-stop $SRC
+   adb shell am force-stop $DST
+   ```
+
+2. **Copy TizenTube's profile to the computer.**
+
+   ```sh
+   adb exec-out run-as $SRC tar -cf - app_content_shell > tizentube-profile.tar
+   tar -tf tizentube-profile.tar | grep -c .
+   ```
+
+   **Check:** the count is above 0, and `tar -tf tizentube-profile.tar | grep Cookies` lists
+   `app_content_shell/content_shell/Cookies`. If you see `package not debuggable` or `unknown package`, stop:
+   this method doesn't work with that TizenTube build.
+
+3. **Set TT Extras' own profile aside.** It's renamed, not deleted, so you can undo. If you never opened
+   TT Extras, the rename just fails with `No such file`, which is fine.
+
+   ```sh
+   adb shell run-as $DST mv app_content_shell app_content_shell.old
+   ```
+
+4. **Copy the profile into TT Extras.**
+
+   ```sh
+   adb exec-in run-as $DST tar -xf - < tizentube-profile.tar
+   ```
+
+5. **Check the copy.** Both counts must match. The Cookies file must not be empty: a size of 0 means the
+   copy failed, so undo (below) and try again.
+
+   ```sh
+   tar -tf tizentube-profile.tar | grep -c .
+   adb exec-out run-as $DST tar -cf - app_content_shell | tar -tf - | grep -c .
+   adb shell run-as $DST ls -l app_content_shell/content_shell/Cookies
+   ```
+
+6. **Start TT Extras** (step 7). You should be signed in to the same account or, as a guest, see a Home
+   feed like TizenTube's. Once you're happy, delete the old profile and the copy on your computer. The
+   copy holds your sign-in, so don't keep it lying around.
+
+   ```sh
+   adb shell run-as $DST rm -rf app_content_shell.old
+   rm tizentube-profile.tar
+   ```
+
+**Undo** (before deleting `app_content_shell.old`):
+
+```sh
+adb shell am force-stop $DST
+adb shell run-as $DST rm -rf app_content_shell
+adb shell run-as $DST mv app_content_shell.old app_content_shell
+```
+
+Agents: this copies the person's sign-in. Ask before starting, and never print or upload the tar file
+or anything in it.
+
+## 7. First start (you)
 
 1. Open **TT Extras** from the TV's app list. The home screen may keep showing TizenTube's icon for a
    while. To refresh it now: `adb shell pm trim-caches 999G`, then
@@ -167,7 +248,7 @@ This deletes TT Extras' settings, history, subscriptions and saved Shorts. Tizen
 
 - Run only the commands above, and only against the device the person named.
 - Don't install, uninstall or clear anything beyond what a step says. Ask the person before any step
-  that changes the TV (steps 5 and 6, uninstalling).
+  that changes the TV (steps 5–7, uninstalling).
 - Never choose, read, print or store the keystore password. The person types it into `keytool` and
   `apksigner` themselves.
 - Stop and report if a command fails in a way not covered here, or if the TV shows a system dialog you
