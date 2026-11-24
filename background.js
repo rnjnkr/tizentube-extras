@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 TT Extras contributors. See LICENSE.
-// Background picture (settings rows; Off by default): a dimmed picture behind the browsing pages (Home, the sidebar
-// tabs, search). Never behind video playback, Shorts or sign-in: a class on <html> is set only on browse/search pages
-// and cleared everywhere else. Sources (the "Background" row cycles through them):
+// Background picture (settings rows; Off by default): a dimmed picture behind every page except actual video
+// playback (Watch) — Home, the sidebar tabs, search, Shorts (visible beside a vertical video's letterbox bars),
+// sign-in, Settings, etc. A class on <html> is cleared only on the Watch page. Sources (the "Background" row
+// cycles through them):
 //  - repo: a picture from backgrounds/ next to these modules (the tagged jsDelivr release, or the development server),
 //    listed in backgrounds/backgrounds.json; the "Change background picture" row steps through the list. The setting
 //    backgroundSource ("name/repo", no on-screen editor yet) takes the pictures from another public GitHub repo's
@@ -93,9 +94,7 @@
     }
 
     function wanted() {
-        if (X.onShortsPage()) return false;
-        var h = location.hash;
-        return X.isHome() || h.indexOf('#/browse?') === 0 || h.indexOf('#/search') === 0;
+        return !X.isWatch();
     }
 
     // Scripts may not add <style> elements (CSP), so the rule goes into the page's own nonce'd stylesheet,
@@ -111,7 +110,13 @@
             ' background-color: #000 !important;' +
             ' background-image: linear-gradient(rgba(0,0,0,.55), rgba(0,0,0,.55)), url("' + img + '") !important;' +
             ' background-size: cover !important; background-position: center !important;' +
-            ' background-repeat: no-repeat !important; }' + END : '';
+            ' background-repeat: no-repeat !important; }' +
+            // Pages that paint their own full-screen backdrop over #container: sign-in (a gradient picture, and a dark
+            // scrim over its lower part in ::before) and the Shorts player (solid black plus a gradient in the video's
+            // colours, two levels inside ytlr-player).
+            ' html.' + CLS + ' ytlr-accounts-container, html.' + CLS + ' ytlr-accounts-container::before,' +
+            ' html.' + CLS + ' body.WEB_PAGE_TYPE_SHORTS ytlr-player,' +
+            ' html.' + CLS + ' body.WEB_PAGE_TYPE_SHORTS ytlr-player > div > div { background: none !important; }' + END : '';
         var current = at === -1 ? '' : text.slice(at, end === -1 ? text.length : end + END.length);
         if (current !== rule) style.textContent = (at === -1 ? text : text.slice(0, at) + (end === -1 ? '' : text.slice(end + END.length))) + rule;
         var root = document.documentElement, show = !!img && wanted();

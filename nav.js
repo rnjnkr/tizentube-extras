@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 TT Extras contributors. See LICENSE.
-// Sidebar (guide) focus wraps around: UP on the first item goes to the last, DOWN on the last to the first.
+// Sidebar (guide) focus wraps around: UP on the first entry (Sign in when present) goes to the last,
+// and DOWN on the last goes to the first.
 //
 // Built to survive minified-name changes (the select method was fa() until the 2026-11-17 YouTube
-// update, then ga()): the method is found by behaviour, not by name (build/robust-nav-keyboard.md).
+// update, then ga()): discovery follows the guide's own call sites (build/robust-nav-keyboard.md).
 //  - Where focus is: the deepest .zylon-focus element (YouTube's own focus path; document.activeElement
 //    can be stale in this app), activeElement only as a fallback; the guide's named `focused` prop must agree.
 //  - Which entry is selected: the guide's named `selectedIndex` getter, else the focused entry's props.index.
 //  - Top/bottom: the rendered <ytlr-guide-entry-renderer>s (named props `index`, `hidden`).
 //  - The select method: an own 1-argument function of the guide instance that the guide's own named
-//    handlers (onRightFocus, onBack, a ()=>{this.N(-1)} wrapper) call with an index, or whose source
-//    selects by index (-1 = account entry). The pick is cached and validated after every call: the
-//    guide's selectedIndex and the focused entry must both be the target, else the name is blacklisted;
-//    after 2 failures wrapping is off for the session. A failure never swallows later keys.
+//    handlers (onRightFocus, onBack, the account wrapper) call with an index. An uninterrupted
+//    sample with selection and focus on the target caches the pick for that guide instance.
+//    A throw or a confirmed no-op lets native navigation handle edge presses for one second,
+//    then the next edge press tries the next candidate.
 (function () {
     if (location.hostname !== 'www.youtube.com') return;
     if (window.__tizentubeExtrasNav) return;
@@ -22,10 +23,8 @@
     if (!X) return;
     var log = X.log;
 
-    var broken = false;     // wrapping off for the session
-    var failures = 0;
-    var picked = null;      // validated method name (session cache)
-    var bad = {};           // names that failed validation
+    var lastRoot = null, lastGuide = null, picked = null, failed = null, retryAfter = 0;
+    var keySerial = 0;
     var pending = false;    // one validation at a time (no queued timers)
     var NAMED = { onBack: 1, onRightFocus: 1, onUp: 1, onDown: 1, onLeft: 1, onRight: 1, onSelect: 1, template: 1 };
 
@@ -50,7 +49,7 @@
     }
     function src(f) { try { return typeof f === 'function' ? String(f) : ''; } catch (e) { return ''; } }
     function usable(guide, n) {
-        return !NAMED[n] && !bad[n] && Object.prototype.hasOwnProperty.call(guide, n) &&
+        return !NAMED[n] && Object.prototype.hasOwnProperty.call(guide, n) &&
             typeof guide[n] === 'function' && guide[n].length === 1 && !/^class[\s{]/.test(src(guide[n]));
     }
 
@@ -65,22 +64,31 @@
         for (i = 0; i < keys.length; i++) {
             m = /^\(\)[=][>]\{this\.([\w$]+)\(-1\)\}$/.exec(src(guide[keys[i]])); if (m) add(m[1]);
         }
-        // Broad last resort (it can match unrelated code): only when the specific patterns found nothing.
-        for (i = 0; !out.length && i < keys.length; i++) {
-            var t = src(guide[keys[i]]);
-            if (/===-1/.test(t) && /selectedIndex===/.test(t)) add(keys[i]);
-        }
         return out;
     }
 
+    function reset(root, guide) {
+        lastRoot = root;
+        lastGuide = guide;
+        picked = failed = null;
+        retryAfter = 0;
+    }
+    X.test = X.test || {};
+    X.test.nav = { hasGuide: function () { return lastGuide !== null || lastRoot !== null; } };
+
     window.addEventListener('keydown', function (e) {
+        var press = ++keySerial;
+        if (lastRoot && !document.contains(lastRoot)) reset(null, null);
         var k = e.keyCode;
-        if ((k !== 38 && k !== 40) || e.repeat || broken || pending) return;
+        if ((k !== 38 && k !== 40) || e.repeat || pending) return;
         var f = focused();
         var entry = f && up(f, 'YTLR-GUIDE-ENTRY-RENDERER');
         var root = entry && up(entry, 'YTLR-GUIDE-RESPONSE');
-        var guide = root && root.__instance;
-        if (!guide || (guide.props && guide.props.focused === false)) return;
+        var guide = root && document.contains(root) && root.__instance;
+        if (!guide) return;
+        if (guide !== lastGuide) reset(root, guide);
+        else lastRoot = root;
+        if ((guide.props && guide.props.focused === false) || Date.now() < retryAfter) return;
 
         var entries = root.querySelectorAll('ytlr-guide-entry-renderer'), lo = null, hi = null;
         for (var i = 0; i < entries.length; i++) {
@@ -96,35 +104,38 @@
         var target = k === 38 && here === lo ? hi : k === 40 && here === hi ? lo : null;
         if (target === null || target === here) return;
 
-        var names = candidates(guide), name = names[0];
-        if (!name) {
-            broken = true;
-            log({ navWrapDisabled: 'no select method', ownFns: Object.keys(guide).filter(function (n) { return typeof guide[n] === 'function'; }).join(',') });
-            return;   // key not swallowed: the guide handles it natively
-        }
+        var names = candidates(guide);
+        if (!names.length) return;
+        var next = (names.indexOf(failed) + 1) % names.length, name = names[next];
+        var startFocus = entryIndex(entry);
+        pending = true;
         e.preventDefault();
         e.stopImmediatePropagation();
         var line = { navWrap: k === 38 ? 'up' : 'down', from: here, to: target, via: name };
         if (name !== picked) line.candidates = names.join(',');   // first use: how the method was found
         log(line);
-        var ok = true, err = null;
-        try { guide[name](target); } catch (x) { ok = false; err = String(x); }
-        // The effect must hold: the guide's selection and YouTube's focus are both on the target entry.
-        pending = true;
+        var started = Date.now(), err = null;
+        try { guide[name](target); } catch (x) {
+            failed = name;
+            retryAfter = Date.now() + 1000;
+            try { err = String(x); } catch (e) { err = 'selector threw'; }
+        }
         setTimeout(function () {
             pending = false;
-            var sel = null, fx = null;
-            if (ok) {
-                sel = selected(guide, null);
-                fx = entryIndex(up(focused(), 'YTLR-GUIDE-ENTRY-RENDERER'));
-                ok = sel === target && fx === target;
+            var now = Date.now(), anotherKey = press !== keySerial;
+            var leaf = focused();
+            var clean = !anotherKey && up(leaf, 'YTLR-GUIDE-RESPONSE') === root &&
+                root.__instance === guide && !(guide.props && guide.props.focused === false);
+            var sel = selected(guide, null), fx = entryIndex(up(leaf, 'YTLR-GUIDE-ENTRY-RENDERER'));
+            if (err === null && clean && sel === target && fx === target) { picked = name; failed = null; return; }
+            var noOp = err === null && clean && startFocus === here && sel === here && fx === here;
+            if (noOp) {
+                failed = name;
+                retryAfter = now + 1000;
             }
-            if (ok) { picked = name; failures = 0; return; }
-            bad[name] = true;
-            if (picked === name) picked = null;
-            failures++;
-            if (failures >= 2) broken = true;
-            log({ navWrapFailed: name, target: target, selectedIndex: sel, focusIndex: fx, error: err, disabled: broken, others: names.slice(1) });
+            log({ navWrapFailed: name, reason: noOp ? 'no-op' : 'inconclusive', target: target,
+                selectedIndex: sel, focusIndex: fx, error: err, elapsedMs: now - started, anotherKey: anotherKey,
+                others: names.slice(next + 1).concat(names.slice(0, next)) });
         }, 200);
     }, true);
 })();
